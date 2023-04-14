@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+export TEMP=/tmp
 for i in data
 do
     if [ ! -d ${i} ]; then
@@ -17,7 +18,7 @@ else
     source venv/bin/activate
 fi
 
-if [ ! -d momepy2 ]; then
+if [ ! -d momepy ]; then
     git clone https://github.com/anisotropi4/momepy.git
     ln -s momepy2 momepy/momepy
 fi
@@ -36,9 +37,9 @@ if [ ! -s data/${FILESTUB}-simple.gpkg ]; then
     ln jay/output/${FILESTUB}-simple.gpkg data/${FILESTUB}-simple.gpkg
 fi
 
-FILESTUB=network-model
+FILESTUB=great-britain-rail
 if [ ! -s data/${FILESTUB}-simple.gpkg ]; then
-    URI=https://github.com/openraildata/network-rail-gis/releases/download/20230317-01
+    URI=https://github.com/anisotropi4/magpie/blob/master/great-britain-rail.gpkg?raw=true
     if [ ! -s data/${FILESTUB}.gpkg ]; then
         curl -Lo data/${FILESTUB}.gpkg ${URI}/${FILESTUB}.gpkg
     fi
@@ -46,6 +47,7 @@ if [ ! -s data/${FILESTUB}-simple.gpkg ]; then
     ln jay/output/${FILESTUB}-simple.gpkg data/${FILESTUB}-simple.gpkg
 fi
 
+exit 1
 if [ ! -s linetrack.gpkg ]; then
     ./trackcheck.py
 fi
