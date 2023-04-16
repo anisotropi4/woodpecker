@@ -49,7 +49,7 @@ def get_overlap(gf1, gf2):
     gf1["n"] = gf1.reset_index().index
     for k, v in gf1["geometry"].items():
         n = gf1.loc[k, "n"]
-        if (n % 1024) == 0:
+        if (n % 4096) == 0:
             print(f"{k}\t{n}\t{round(n / gf1.shape[0], 3):.3f}")
         ix = gf2["geometry"].within(v)
         s = pd.Series({i: k for i in ix[ix].index})
@@ -110,9 +110,11 @@ def get_segments(this_network):
     s, rest = gf.apply(get_splits, axis=1).apply(pd.Series).to_numpy().T
     data.append(gp.GeoSeries(s, index=ix, name="segment"))
 
+    n = 0
     while not (gs := get_gs(rest, (ix + 1))).empty:
+        n += gs.shape[0]
         if gs.shape[0] > 128:
-            print(f"{gs.shape[0]}\t{this_network.shape[0]}")
+            print(f"{n}\t{this_network.shape[0]}")
         ix = gs.index.intersection(end_ix)
         if not ix.empty:
             data.append(gs.loc[ix])
@@ -291,9 +293,21 @@ def combine_network(waymarks, network, width=CENTRE2CENTRE):
     r = get_npoint(gs1["geometry"], gs2["geometry"]).to_frame()
     r["M_POST_ID"] = gs1.index
     r.index = gs2.index
-    r["line"] = gf2.set_index("ASSETID").loc[r.index, "geometry"]
+    gf2 = gf2.set_index("ASSETID")
+    r[["line", "ELR"]] = gf2.loc[r.index, ["geometry", "ELR"]]
     r["offset"] = get_offset(r["line"], r["geometry"])
     return r.sort_values(["ASSETID", "offset"]).reset_index()
+
+
+def get_post(this_gf):
+    fields = ["ASSETID", "M_POST_ID", "ELR", "offset", "geometry"]
+    post = this_gf[fields]
+    ix = post.set_index("M_POST_ID").index.difference([0])
+    fields = ["M_POST_ID", "M_SYSTEM", "WAYMARK_VA"]
+    post = post.join(WAYMARKS[fields].set_index("M_POST_ID"), on="M_POST_ID")
+    post["M_SYSTEM"] = post["M_SYSTEM"].fillna("-")
+    post = post.fillna(0.0)
+    return post
 
 
 def get_segmented_nx(network):
@@ -302,9 +316,7 @@ def get_segmented_nx(network):
     r = pd.concat([gf1, gf2]).drop_duplicates(subset=["ASSETID", "geometry"])
     r["segment"] = LineString([])
     r = r.sort_values(["ASSETID", "offset"]).reset_index(drop=True)
-
-    fields = ["ASSETID", "M_POST_ID", "offset", "geometry"]
-    post = r[fields]
+    post = get_post(r)
 
     fields = ["ASSETID", "M_POST_ID", "geometry", "line"]
     gs = get_segments(r[fields])
