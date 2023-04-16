@@ -28,7 +28,7 @@ OSMNX = OSMNX.drop_duplicates()
 
 HEXAGON = read_dataframe("hexagon4.gpkg", layer="hexagon4-00")
 
-WAYMARKS = read_dataframe("data/network-model-simple.gpkg", layer="WaymarksShape")
+WAYMARKS = read_dataframe("data/network-model-simple.gpkg", layer="Waymarks")
 
 
 def get_buffer(gs, width=4, length=0):
@@ -111,7 +111,8 @@ def get_segments(this_network):
     data.append(gp.GeoSeries(s, index=ix, name="segment"))
 
     while not (gs := get_gs(rest, (ix + 1))).empty:
-        print(f"{gs.shape[0]}\t{gf.shape[0]}")
+        if gs.shape[0] > 128:
+            print(f"{gs.shape[0]}\t{this_network.shape[0]}")
         ix = gs.index.intersection(end_ix)
         if not ix.empty:
             data.append(gs.loc[ix])
