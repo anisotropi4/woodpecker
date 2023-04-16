@@ -18,9 +18,9 @@ else
     source venv/bin/activate
 fi
 
-if [ ! -d momepy ]; then
+if [ ! -h momepy2 ]; then
     git clone https://github.com/anisotropi4/momepy.git
-    ln -s momepy2 momepy/momepy
+    ln -s momepy/momepy momepy2
 fi
 
 if [ ! -d jay ]; then
@@ -47,9 +47,15 @@ if [ ! -s data/${FILESTUB}-simple.gpkg ]; then
     ln jay/output/${FILESTUB}-simple.gpkg data/${FILESTUB}-simple.gpkg
 fi
 
-exit 1
 if [ ! -s linetrack.gpkg ]; then
     ./trackcheck.py
 fi
 
+if [ ! -s linetrack.gpkg ]; then
+    ./trackcheck.py
+fi
+
+if [ ! -s outputx.gpkg ]; then
+    ./gettrack.py
+fi
 
