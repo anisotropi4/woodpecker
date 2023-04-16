@@ -30,6 +30,7 @@ HEXAGON = read_dataframe("hexagon4.gpkg", layer="hexagon4-00")
 
 WAYMARKS = read_dataframe("data/network-model-simple.gpkg", layer="WaymarksShape")
 
+
 def get_buffer(gs, width=4, length=0):
     # style = {"cap_style": "square", "join_style": "mitre", "mitre_limit": length}
     style = {"cap_style": "flat"}
@@ -110,7 +111,7 @@ def get_segments(this_network):
     data.append(gp.GeoSeries(s, index=ix, name="segment"))
 
     while not (gs := get_gs(rest, (ix + 1))).empty:
-        print(f'{gs.shape[0]}\t{gf.shape[0]}')
+        print(f"{gs.shape[0]}\t{gf.shape[0]}")
         ix = gs.index.intersection(end_ix)
         if not ix.empty:
             data.append(gs.loc[ix])
@@ -327,7 +328,7 @@ def get_segmented_nx(network):
     ix = segment.set_index("ASSETID").index
     segment[fields] = nx[fields].loc[ix].values
 
-    ix = nx.index.difference(segment['ASSETID'])
+    ix = nx.index.difference(segment["ASSETID"])
     remainder = nx.loc[ix, fields + ["geometry"]].reset_index()
     remainder[["M_POST_ID", "offset"]] = [0, 0.0]
     remainder["length"] = remainder.length

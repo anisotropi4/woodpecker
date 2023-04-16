@@ -66,7 +66,7 @@ OSMNX = OSMNX.drop_duplicates()
 
 print(1, dt.datetime.now() - START)
 
-if 'HXNX' not in globals():
+if "HXNX" not in globals():
     HXNX = mp2.remove_false_nodes(NETWORK["geometry"]).set_crs(CRS)
     HXNX = HXNX.to_frame(name="geometry")
     HXNX = merge_network(NETWORK["geometry"])
@@ -81,7 +81,7 @@ if 'HXNX' not in globals():
 write_dataframe(HXNX, OUTFILE, layer="linenx")
 
 print(2, dt.datetime.now() - START)
-if 'HXOSM' not in globals():
+if "HXOSM" not in globals():
     IDX = OSMNX[OSMNX["railway"] != "rail"].index
     HXNOSM = OSMNX.loc[IDX, "geometry"].drop_duplicates()
     NXNOSM = mp2.remove_false_nodes(HXNOSM).set_crs(CRS)
@@ -112,6 +112,7 @@ HX = HEXAGON.dropna().reset_index(drop=True).rename(columns={"index": "hx"})
 HX = HX.reset_index().rename(columns={"index": "hx"})
 HX = HX[["hx", "geometry"]]
 write_dataframe(HX.reset_index(), OUTFILE, layer="HX")
+
 
 def get_hexlayer(hexagon, resolution):
     s = hexagon.copy()
@@ -186,7 +187,6 @@ def get_buffer(gs, width=4, length=1.0e4):
     r = mp2.extend_lines(gs.to_frame(), 10.0, extension=length)
     r.index = gs.index
     return r.buffer(width, **style)
-
 
 
 def get_overlap(gf1, gf2):
