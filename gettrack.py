@@ -62,6 +62,10 @@ def get_npoint(gs1, gs2):
     return gp.GeoSeries(r, crs=CRS).rename("geometry")
 
 
+def get_offset(line, point):
+    return line_locate_point(line, point)
+
+
 def get_nearest(gs1, gs2):
     r = [LineString(nearest_points(*i)) for i in zip(gs1, gs2)]
     return gp.GeoSeries(r, crs=CRS).rename("geometry")
@@ -75,10 +79,6 @@ def get_split(gs1, gs2):
 def get_extend(gs, length=1000.0):
     r = mp2.extend_lines(gs.to_frame(), 10.0, extension=length)
     return r.set_crs(CRS)
-
-
-def get_offset(line, point):
-    return line_locate_point(line, point)
 
 
 def get_splits(v, separation=1.0e-4):
@@ -129,7 +129,7 @@ def get_segments(this_network):
     return gp.GeoSeries(pd.concat(data)).sort_index()
 
 
-def get_basenx():
+def get_basenx(osmnx):
     data = []
     layers = {k for k, _ in list_layers(INFILE)}
     for n in range(16):
@@ -141,7 +141,7 @@ def get_basenx():
             data.append(osmx.loc[idx])
     basenx = pd.concat(data).reset_index(drop=True)
     basenx["length"] = basenx.length
-    basenx = basenx.sjoin_nearest(OSMNX, max_distance=1.0, distance_col="d")
+    basenx = basenx.sjoin_nearest(osmnx, max_distance=1.0, distance_col="d")
     keys = ["osmx2", "hex_id", "OSM"]
     basenx = basenx.sort_values("d").drop_duplicates(subset=keys)
     return basenx
@@ -170,29 +170,26 @@ def write_basenx(basenx, outfile, layer):
     write_dataframe(basenx[fields], outfile, layer=layer)
 
 
-def set_fullnx(basenx, outfile, layer):
-    fullnx = basenx[["osmid", "geometry"]].copy()
+def set_fullnx(basenx, osmnx, outfile, layer):
+    fullnx = basenx.copy()
     fullnx["length"] = fullnx.length
-    fullnx = fullnx.sort_values("length", ascending=False)
-    fullnx = fullnx.drop_duplicates(subset="osmid")
-    ix = pd.Index(fullnx["osmid"])
-    fullnx = OSMNX.set_index("osmid").loc[ix].reset_index()
+    fullnx = basenx[["osmid", "length"]].sort_values("length", ascending=False)
+    ix = pd.Index(fullnx["osmid"].drop_duplicates())
+    fullnx = osmnx.set_index("osmid").loc[ix].reset_index()
     write_dataframe(fullnx, outfile, layer=layer)
 
 
-def get_network(osmnx):
-    overlap = NETWORK.sjoin_nearest(
-        osmnx, max_distance=2 * CENTRE2CENTRE, distance_col="d"
-    )
+def get_network(network, osmnx, distance=CENTRE2CENTRE):
+    overlap = network.sjoin_nearest(osmnx, max_distance=distance, distance_col="d")
     overlap = overlap.sort_values("d").drop_duplicates(subset="ASSETID")
     overlap = overlap.reset_index(drop=True)
-    idx = pd.Index(NETWORK["ASSETID"]).difference(pd.Index(overlap["ASSETID"]))
-    clipped = NETWORK.set_index("ASSETID").loc[idx].reset_index()
+    idx = pd.Index(network["ASSETID"]).difference(pd.Index(overlap["ASSETID"]))
+    clipped = network.set_index("ASSETID").loc[idx].reset_index()
     clipped[["railway", "location"]] = ["rail", "GB"]
     network = pd.concat([overlap, clipped]).fillna("-").reset_index(drop=True)
     network = network.sort_values("ASSETID")
     network["ELD"] = network["ELR"].str[:3]
-    return network
+    return network.reset_index(drop=True)
 
 
 def write_network(network, outfile, layer):
@@ -230,7 +227,7 @@ def write_network(network, outfile, layer):
     write_dataframe(network[fields], outfile, layer=layer)
 
 
-def set_elrnx(osmnx):
+def set_elrnx(osmnx, network, outfile, distance=2 * CENTRE2CENTRE):
     fields = [
         "OBJECTID",
         "ASSETID",
@@ -262,10 +259,7 @@ def set_elrnx(osmnx):
         "location",
         "ELD",
     ]
-
-    elrnx = osmnx.sjoin_nearest(
-        NETWORK, max_distance=2 * CENTRE2CENTRE, distance_col="d"
-    )
+    elrnx = osmnx.sjoin_nearest(network, max_distance=distance, distance_col="d")
     elrnx = (
         elrnx.sort_values("d").drop_duplicates(subset="osmid").reset_index(drop=True)
     )
@@ -275,7 +269,7 @@ def set_elrnx(osmnx):
     elrnx["ELD"] = elrnx["ELR"].str[:3]
     if "elr_match" not in fields:
         fields += ["elr_match"]
-    write_dataframe(elrnx[fields], OUTFILE, layer="ELR")
+    write_dataframe(elrnx[fields], outfile, layer="ELR")
 
 
 def combine_network(waymarks, network, width=CENTRE2CENTRE):
@@ -302,7 +296,6 @@ def combine_network(waymarks, network, width=CENTRE2CENTRE):
 def get_post(this_gf):
     fields = ["ASSETID", "M_POST_ID", "ELR", "offset", "geometry"]
     post = this_gf[fields]
-    ix = post.set_index("M_POST_ID").index.difference([0])
     fields = ["M_POST_ID", "M_SYSTEM", "WAYMARK_VA"]
     post = post.join(WAYMARKS[fields].set_index("M_POST_ID"), on="M_POST_ID")
     post["M_SYSTEM"] = post["M_SYSTEM"].fillna("-")
@@ -310,8 +303,8 @@ def get_post(this_gf):
     return post
 
 
-def get_segmented_nx(network):
-    gf1 = combine_network(WAYMARKS, network, 10 * CENTRE2CENTRE)
+def get_segmented_nx(this_nx, this_waymark):
+    gf1 = combine_network(this_waymark, this_nx, 10 * CENTRE2CENTRE)
     gf2 = get_end_segment(gf1)
     r = pd.concat([gf1, gf2]).drop_duplicates(subset=["ASSETID", "geometry"])
     r["segment"] = LineString([])
@@ -327,7 +320,7 @@ def get_segmented_nx(network):
     segment["length"] = segment.length
     segment = segment.set_crs(CRS)
 
-    nx = network.set_index("ASSETID")
+    nx = this_nx.set_index("ASSETID")
     fields = [
         "ELR",
         "TRID",
@@ -336,7 +329,7 @@ def get_segmented_nx(network):
         "L_M_TO",
         "L_SYSTEM",
         "L_LINK_ID",
-        "SHAPE_LEN",
+        "SHAPE_Leng",
     ]
     ix = segment.set_index("ASSETID").index
     segment[fields] = nx[fields].loc[ix].values
@@ -357,17 +350,19 @@ def main():
     outfile = "outputx.gpkg"
     write_dataframe(HEXAGON, outfile, layer="hex")
 
-    basenx = get_basenx()
+    basenx = get_basenx(OSMNX)
     write_basenx(basenx, outfile, "basenx")
-    set_fullnx(basenx, outfile, "fullnx")
+    set_fullnx(basenx, OSMNX, outfile, "fullnx")
 
     ix = OSMNX["railway"].isin(["rail", "light_rail", "tram"])
     osmnx = OSMNX[ix].reset_index(drop=True)
-    network = get_network(osmnx)
+    write_dataframe(osmnx, outfile, layer="osmnx")
+
+    network = get_network(NETWORK, osmnx, 2 * CENTRE2CENTRE)
     write_network(network, outfile, layer="network")
 
     outfile = "segmentx.gpkg"
-    post, segment = get_segmented_nx(network)
+    post, segment = get_segmented_nx(network, WAYMARKS)
     write_dataframe(post, outfile, layer="post")
     write_dataframe(segment, outfile, layer="segment")
 
