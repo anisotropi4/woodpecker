@@ -110,7 +110,7 @@ def get_segments(this_network):
     s, rest = gf.apply(get_splits, axis=1).apply(pd.Series).to_numpy().T
     data.append(gp.GeoSeries(s, index=ix, name="segment"))
 
-    n = 0
+    n = gf.shape[0]
     while not (gs := get_gs(rest, (ix + 1))).empty:
         n += gs.shape[0]
         if gs.shape[0] > 128:
@@ -187,7 +187,7 @@ def get_network(network, osmnx, distance=CENTRE2CENTRE):
     clipped = network.set_index("ASSETID").loc[idx].reset_index()
     clipped[["railway", "location"]] = ["rail", "GB"]
     network = pd.concat([overlap, clipped]).fillna("-").reset_index(drop=True)
-    network = network.sort_values("ASSETID")
+    network = network.sort_values(["ASSETID", "L_M_FROM"])
     network["ELD"] = network["ELR"].str[:3]
     return network.reset_index(drop=True)
 
@@ -321,6 +321,7 @@ def get_segmented_nx(this_nx, this_waymark):
     segment = segment.set_crs(CRS)
 
     nx = this_nx.set_index("ASSETID")
+    nx = nx.rename(columns={"SHAPE_Leng": "SHAPE_LEN"})
     fields = [
         "ELR",
         "TRID",
@@ -329,7 +330,7 @@ def get_segmented_nx(this_nx, this_waymark):
         "L_M_TO",
         "L_SYSTEM",
         "L_LINK_ID",
-        "SHAPE_Leng",
+        "SHAPE_LEN",
     ]
     ix = segment.set_index("ASSETID").index
     segment[fields] = nx[fields].loc[ix].values
