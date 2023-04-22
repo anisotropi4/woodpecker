@@ -293,11 +293,11 @@ def combine_network(waymarks, network, width=CENTRE2CENTRE):
     return r.sort_values(["ASSETID", "offset"]).reset_index()
 
 
-def get_post(this_gf):
+def get_post(this_gf, waymarks):
     fields = ["ASSETID", "M_POST_ID", "ELR", "offset", "geometry"]
     post = this_gf[fields]
     fields = ["M_POST_ID", "M_SYSTEM", "WAYMARK_VA"]
-    post = post.join(WAYMARKS[fields].set_index("M_POST_ID"), on="M_POST_ID")
+    post = post.join(waymarks[fields].set_index("M_POST_ID"), on="M_POST_ID")
     post["M_SYSTEM"] = post["M_SYSTEM"].fillna("-")
     post = post.fillna(0.0)
     return post
@@ -309,7 +309,7 @@ def get_segmented_nx(this_nx, this_waymark):
     r = pd.concat([gf1, gf2]).drop_duplicates(subset=["ASSETID", "geometry"])
     r["segment"] = LineString([])
     r = r.sort_values(["ASSETID", "offset"]).reset_index(drop=True)
-    post = get_post(r)
+    post = get_post(r, this_waymark)
 
     fields = ["ASSETID", "M_POST_ID", "geometry", "line"]
     gs = get_segments(r[fields])
@@ -366,6 +366,7 @@ def main():
     post, segment = get_segmented_nx(network, WAYMARKS)
     write_dataframe(post, outfile, layer="post")
     write_dataframe(segment, outfile, layer="segment")
+    print(f"segemented", dt.datetime.now() - START)
 
 
 if __name__ == "__main__":
