@@ -513,7 +513,6 @@ def match_point_segment(this_post, this_segment):
     px.loc[gs.index, "ELR2"] = gs.values
 
     gs = get_point_key(this_segment, "L_SYSTEM")
-    px.loc[gs.index, "L_SYSTEM"] = gs.values
     px["L_SYSTEM"] = "-"
     px.loc[gs.index, "L_SYSTEM"] = gs.values
 
