@@ -1,17 +1,15 @@
 #!/usr/bin/env python
 
 import os
-import warnings
 import datetime as dt
 import pandas as pd
+from functools import partial
 
 os.environ["USE_PYGEOS"] = "0"
 import geopandas as gp
 from pyogrio import read_dataframe, write_dataframe, list_layers
 from shapely import line_locate_point, line_interpolate_point, Point, LineString
 from shapely.ops import nearest_points, split, snap
-
-import momepy2 as mp2
 
 START = dt.datetime.now()
 pd.set_option("display.max_columns", None)
@@ -42,11 +40,6 @@ def get_buffer(gs, width=4, length=0):
     return gs.buffer(width, **style)
 
 
-def get_ds(this_array, name=None, axis=None):
-    r = pd.Series(this_array.T[1], this_array.T[0])
-    return r.rename_axis(axis).rename(name)
-
-
 def get_overlap(gf1, gf2):
     data = []
     gf1 = gf1.copy()
@@ -61,11 +54,6 @@ def get_overlap(gf1, gf2):
     return pd.concat(data).rename_axis(gf1.index.name).rename(gf2.index.name)
 
 
-def get_npoint(gs1, gs2):
-    r = [nearest_points(*i)[1] for i in zip(gs1, gs2)]
-    return gp.GeoSeries(r, crs=CRS).rename("geometry")
-
-
 def get_nearest_point(gs1, gs2):
     r = [nearest_points(*i)[0] for i in zip(gs1, gs2)]
     return gp.GeoSeries(r, crs=CRS).rename("geometry")
@@ -75,28 +63,9 @@ def get_offset(line, point):
     return line_locate_point(line, point)
 
 
-def get_nearest(gs1, gs2):
-    r = [LineString(nearest_points(*i)) for i in zip(gs1, gs2)]
-    return gp.GeoSeries(r, crs=CRS).rename("geometry")
-
-
-def get_split(gs1, gs2):
-    r = [split(*i) for i in zip(gs1, gs2)]
-    return gp.GeoSeries(r, crs=CRS).rename("geometry")
-
-
-def get_extend(gs, length=1000.0):
-    r = mp2.extend_lines(gs.to_frame(), 10.0, extension=length)
-    return r.set_crs(CRS)
-
-
-def get_splits(v, separation=1.0e-4):
+def get_split(v, separation=1.0e-4):
     line, point = v["line"], v["geometry"]
     return list(split(snap(line, point, separation), point).geoms)
-
-
-def get_extrema(v):
-    return (Point(v.coords[0]), Point(v.coords[-1]))
 
 
 def get_start_point(v):
@@ -120,6 +89,7 @@ def get_gs(this_array, this_index):
 
 
 def get_section(this_gf, ix, separation=1.0e-4):
+    get_splits = partial(get_split, separation=separation)
     this_gf = this_gf.loc[this_gf.index.difference(ix)]
     line, offset = this_gf["line"].rename("line"), this_gf["offset"].values
     point = line_interpolate_point(line, offset).rename("geometry")
@@ -128,7 +98,8 @@ def get_section(this_gf, ix, separation=1.0e-4):
     return section["segment"]
 
 
-def get_segment(this_network):
+def get_segment(this_network, separation=1.0e-4):
+    get_splits = partial(get_split, separation=separation)
     data = []
     gf = this_network.drop_duplicates("ASSETID")
     ix = gf.index
@@ -255,74 +226,6 @@ def write_network(network, outfile, layer):
     write_dataframe(network[fields], outfile, layer=layer)
 
 
-def set_elrnx(osmnx, network, outfile, distance=2 * CENTRE2CENTRE):
-    fields = [
-        "OBJECTID",
-        "ASSETID",
-        "L_LINK_ID",
-        "L_SYSTEM",
-        "L_VAL",
-        "L_QUALITY",
-        "ELR",
-        "TRID",
-        "TRCODE",
-        "L_M_FROM",
-        "L_M_TO",
-        "TRACK_STAT",
-        "geometry",
-        "osmid",
-        "maxspeed",
-        "name",
-        "ref",
-        "electrified",
-        "railway",
-        "tunnel",
-        "bridge",
-        "oneway",
-        "frequency",
-        "voltage",
-        "ref:tiploc",
-        "landuse",
-        "type",
-        "location",
-        "ELD",
-    ]
-    elrnx = osmnx.sjoin_nearest(network, max_distance=distance, distance_col="d")
-    elrnx = (
-        elrnx.sort_values("d").drop_duplicates(subset="osmid").reset_index(drop=True)
-    )
-    elrnx["elr_match"] = "differ"
-    elrnx.loc[elrnx["ref"].isna(), "elr_match"] = "no osm"
-    elrnx.loc[elrnx["ref"] == elrnx["ELR"], "elr_match"] = "match"
-    elrnx["ELD"] = elrnx["ELR"].str[:3]
-    if "elr_match" not in fields:
-        fields += ["elr_match"]
-    write_dataframe(elrnx[fields], outfile, layer="ELR")
-
-
-def combine_network(waymarks, network, width=CENTRE2CENTRE):
-    gf1 = waymarks[["M_POST_ID", "geometry"]]
-    gf2 = network[["ASSETID", "geometry"]]
-
-    gf = get_buffer(gf2.set_index("ASSETID"), width=width)
-    gf = gf.to_frame("geometry")
-    ix = get_overlap(gf, gf1.set_index("M_POST_ID"))
-    ix = ix.reset_index().drop_duplicates()
-    ix = ix.sort_values("ASSETID").reset_index(drop=True)
-
-    gs1 = gf1.set_index("M_POST_ID").loc[ix["M_POST_ID"]]
-    gs2 = gf2.set_index("ASSETID").loc[ix["ASSETID"]]
-    r = get_npoint(gs1["geometry"], gs2["geometry"]).to_frame()
-    r["M_POST_ID"] = gs1.index
-    r.index = gs2.index
-    gf2 = gf2.set_index("ASSETID")
-    r["line"] = gf2.loc[r.index, "geometry"]
-    warnings.warn("ignore", RuntimeWarning)
-    r["offset"] = get_offset(r["line"], r["geometry"])
-    warnings.warn("default", RuntimeWarning)
-    return r.sort_values(["ASSETID", "offset"]).reset_index()
-
-
 def overlay_nx_waymark(
     network, waymarks, width=CENTRE2CENTRE, nxkey="ASSETID", wxkey="M_POST_ID"
 ):
@@ -347,27 +250,6 @@ def overlay_nx_waymark(
     return r.sort_values([nxkey, "offset"]).reset_index()
 
 
-def get_post(this_gf, node):
-    fields = ["ASSETID", "M_POST_ID", "ELR", "offset", "geometry"]
-    post = this_gf[fields]
-    fields = ["M_POST_ID", "M_SYSTEM", "WAYMARK_VA"]
-    post = post.join(waymark[fields].set_index("M_POST_ID"), on="M_POST_ID")
-    post["M_SYSTEM"] = post["M_SYSTEM"].fillna("-")
-    post = post.fillna(0.0)
-    post["id"] = post["M_POST_ID"]
-    post["waymark"] = post["id"] > 0
-    return post
-
-
-def get_waynode(waymark, node):
-    fields = ["ASSETID", "geometry"]
-    r = pd.concat([waymark[fields], node[fields]]).set_index("ASSETID")
-    r["waymark"] = False
-    ix = r.index.difference(node["ASSETID"])
-    r.loc[ix, "waymark"] = True
-    return r.sort_index()
-
-
 def get_point_key(this_gf, key):
     this_gf = this_gf.set_index(key)
     r = pd.concat([this_gf["source"], this_gf["target"]]).rename("point_id")
@@ -380,10 +262,6 @@ def get_point_count(this_gf):
     r = pd.concat([this_gf["source"], this_gf["target"]]).to_frame("point_id")
     r["#"] = 1
     return r.groupby("point_id").count()
-
-
-def get_value(this_gs, key):
-    return this_gs[key]
 
 
 def get_point_m_value(this_segment, ix):
@@ -411,8 +289,8 @@ def get_remainder_sx(this_nx, this_sx):
     ix = nx.index.difference(this_sx["ASSETID"])
     remainder = nx.loc[ix, "geometry"].reset_index()
     remainder[["M_POST_ID", "offset"]] = [0, 0.0]
-    for c in ["segment", "line"]:
-        remainder[c] = remainder["geometry"]
+    for i in ["segment", "line"]:
+        remainder[i] = remainder["geometry"]
     remainder["geometry"] = remainder["segment"].apply(get_end_point)
     return remainder
 
@@ -487,25 +365,6 @@ def match_segment_point(this_segment, this_post):
     return gp.GeoDataFrame(r, crs=CRS)
 
 
-def match_segment_network(this_segment, this_nx):
-    sx = this_segment.copy()
-    fields = [
-        "ELR",
-        "TRID",
-        "TRCODE",
-        "L_M_FROM",
-        "L_M_TO",
-        "L_SYSTEM",
-        "L_LINK_ID",
-        "SHAPE_LEN",
-    ]
-    nx = this_nx.set_index("ASSETID")
-    sx[fields] = nx.loc[sx["ASSETID"], fields].values
-    sx = sx.drop_duplicates(["ASSETID", "geometry"])
-    sx = sx.sort_values(["ASSETID", "offset"]).reset_index(drop=True)
-    return sx
-
-
 def match_point_segment(this_post, this_segment):
     px = this_post.set_index("point_id")
     gs = get_point_key(this_segment, "ELR")
@@ -550,7 +409,7 @@ def main():
     post, segment = get_segmented_nx(network, WAYMARK, NODE)
     write_dataframe(post, outfile, layer="post")
     write_dataframe(segment, outfile, layer="segment")
-    print(f"segemented", dt.datetime.now() - START)
+    print(f"segemented {dt.datetime.now() - START}")
 
 
 if __name__ == "__main__":
