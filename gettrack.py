@@ -2,8 +2,8 @@
 
 import os
 import datetime as dt
-import pandas as pd
 from functools import partial
+import pandas as pd
 
 os.environ["USE_PYGEOS"] = "0"
 import geopandas as gp
@@ -33,7 +33,7 @@ HEXAGON = read_dataframe("hexagon4.gpkg", layer="hexagon4-00")
 WAYMARK = read_dataframe("data/network-model-simple.gpkg", layer="Waymarks")
 
 
-def get_buffer(gs, width=4, length=0):
+def get_buffer(gs, width=4):
     # style = {"cap_style": "square", "join_style": "mitre", "mitre_limit": length}
     style = {"cap_style": "flat"}
     gs = gs["geometry"].copy()
@@ -229,7 +229,9 @@ def write_network(network, outfile, layer):
 def overlay_nx_waymark(
     network, waymarks, width=CENTRE2CENTRE, nxkey="ASSETID", wxkey="M_POST_ID"
 ):
-    """overlay_nx_waymark: create a rectangular polygon buffer of width on network line elements, identify waymarks within the buffer. Return a GeoDataFrame of all line waymark"""
+    """overlay_nx_waymark: create a rectangular polygon buffer of given width
+    on network line elements, and identify waymarks within the buffer
+    Returns a GeoDataFrame of all line waymarks"""
     gf1 = network[[nxkey, "geometry"]]
     gf2 = waymarks[[wxkey, "geometry"]]
 
@@ -240,7 +242,7 @@ def overlay_nx_waymark(
     ix = ix.sort_values(nxkey).reset_index(drop=True)
 
     gs1 = gf1.set_index(nxkey).loc[ix[nxkey]]
-    gs2 = gf2.set_index("M_POST_ID").loc[ix[wxkey]]
+    gs2 = gf2.set_index(wxkey).loc[ix[wxkey]]
     r = get_nearest_point(gs1["geometry"], gs2["geometry"]).to_frame()
     r.index = gs1.index
     r[wxkey] = gs2.index
@@ -381,14 +383,6 @@ def match_point_segment(this_post, this_segment):
     return px.reset_index()
 
 
-def get_segmented_nx(this_nx, this_waymark, this_node):
-    segment = get_full_sx(this_nx, this_waymark)
-    post = get_full_px(segment, this_waymark, this_node)
-    segment = match_segment_point(segment, post)
-    post = match_point_segment(post, segment)
-    return (post, segment)
-
-
 def main():
     outfile = "outputx.gpkg"
     write_dataframe(HEXAGON, outfile, layer="hex")
@@ -406,7 +400,11 @@ def main():
 
     outfile = "segmentx.gpkg"
     # this_nx, this_waymark, this_node = network, WAYMARK, NODE
-    post, segment = get_segmented_nx(network, WAYMARK, NODE)
+    segment = get_full_sx(network, WAYMARK)
+    post = get_full_px(segment, WAYMARK, NODE)
+    segment = match_segment_point(segment, post)
+    post = match_point_segment(post, segment)
+
     write_dataframe(post, outfile, layer="post")
     write_dataframe(segment, outfile, layer="segment")
     print(f"segemented {dt.datetime.now() - START}")
