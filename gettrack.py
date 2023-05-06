@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+import warnings
 import datetime as dt
 from functools import partial
 import pandas as pd
@@ -300,7 +301,9 @@ def get_remainder_sx(this_nx, this_sx):
 def get_full_sx(this_nx, this_waymark):
     sx = get_base_sx(this_nx, this_waymark)
     fields = ["ASSETID", "M_POST_ID", "geometry", "line"]
-    gs = get_segment(sx[fields])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        gs = get_segment(sx[fields])
     sx.loc[gs.index, "segment"] = gs
     section = get_section(sx[["ASSETID", "line", "offset"]], gs.index)
     sx.loc[section.index, "segment"] = section
@@ -404,7 +407,6 @@ def main():
     post = get_full_px(segment, WAYMARK, NODE)
     segment = match_segment_point(segment, post)
     post = match_point_segment(post, segment)
-
     write_dataframe(post, outfile, layer="post")
     write_dataframe(segment, outfile, layer="segment")
     print(f"segemented {dt.datetime.now() - START}")
