@@ -389,7 +389,9 @@ def match_point_segment(this_post, this_segment):
 def main():
     outfile = "outputx.gpkg"
     write_dataframe(HEXAGON, outfile, layer="hex")
-
+    OUTER = HEXAGON.dissolve().explode(index_parts=False)
+    write_dataframe(OUTER, outfile, layer="outer")
+    
     basenx = get_basenx(OSMNX)
     write_basenx(basenx, outfile, "basenx")
     set_fullnx(basenx, OSMNX, outfile, "fullnx")
