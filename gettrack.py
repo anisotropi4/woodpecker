@@ -175,6 +175,7 @@ def set_fullnx(basenx, osmnx, outfile, layer):
     fullnx = basenx[["osmid", "length"]].sort_values("length", ascending=False)
     ix = pd.Index(fullnx["osmid"].drop_duplicates())
     fullnx = osmnx.set_index("osmid").loc[ix].reset_index()
+    fullnx = pd.concat([basenx, fullnx]).drop_duplicates()
     write_dataframe(fullnx, outfile, layer=layer)
 
 
