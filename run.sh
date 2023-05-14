@@ -51,11 +51,11 @@ if [ ! -s linetrack.gpkg ]; then
     ./trackcheck.py
 fi
 
-if [ ! -s linetrack.gpkg ]; then
-    ./trackcheck.py
-fi
-
 if [ ! -s outputx.gpkg ]; then
     ./gettrack.py
+fi
+
+if [ ! -s tiploc-location.gpkg ]; then
+    ./tiploc-match.py
 fi
 
