@@ -22,6 +22,7 @@ INFILE = "linetrack.gpkg"
 
 NETWORK = read_dataframe("data/network-model-simple.gpkg", layer="NetworkLinks")
 NETWORK = NETWORK.dropna(how="all", axis=1)
+
 NODE = read_dataframe("data/network-model-simple.gpkg", layer="VectorNodes")
 NODE = NODE.dropna(how="all", axis=1)
 
@@ -62,6 +63,22 @@ def get_nearest_point(gs1, gs2):
 
 def get_offset(line, point):
     return line_locate_point(line, point)
+
+
+def get_km(v):
+    y_to_mi = 1760
+    mi_to_km = 1.609344
+    m = int(v)
+    y = round((v - m) * 1.0e4)
+    return round((m + (y / y_to_mi)) * mi_to_km, 3)
+
+
+def get_km_offset(this_gf, unit_key="M_SYSTEM", value_key="WAYMARK_VA"):
+    r = this_gf[[value_key, unit_key]].copy()
+    r["km"] = r[value_key]
+    ix = r[unit_key] == "M"
+    r.loc[ix, "km"] = r.loc[ix, value_key].apply(get_km)
+    return r["km"]
 
 
 def get_split(v, separation=1.0e-4):
@@ -170,27 +187,38 @@ def write_basenx(basenx, outfile, layer):
 
 
 def set_fullnx(basenx, osmnx, outfile, layer):
-    fullnx = basenx.copy()
-    fullnx["length"] = fullnx.length
-    fullnx = basenx[["osmid", "length"]].sort_values("length", ascending=False)
-    ix = pd.Index(fullnx["osmid"].drop_duplicates())
-    fullnx = osmnx.set_index("osmid").loc[ix].reset_index()
-    fullnx = pd.concat([basenx, fullnx]).drop_duplicates()
-    write_dataframe(fullnx, outfile, layer=layer)
+    r = basenx.copy()
+    r["class"] = "rail"
+    fx = r[["osmid", "geometry", "length"]]
+    fx = fx.sort_values("length", ascending=False)
+    fx = fx.drop_duplicates(subset="osmid")
+    ix = pd.Index(fx["osmid"])
+    fx = osmnx.set_index("osmid").loc[ix].reset_index()
+    r = r[fx.columns]
+    fx = pd.concat([r, fx]).drop_duplicates()
+    write_dataframe(fx, outfile, layer=layer)
 
 
 def get_network(network, osmnx, distance=CENTRE2CENTRE):
     overlap = network.sjoin_nearest(osmnx, max_distance=distance, distance_col="d")
     overlap = overlap.sort_values("d").drop_duplicates(subset="ASSETID")
     overlap = overlap.reset_index(drop=True)
-    idx = pd.Index(network["ASSETID"]).difference(pd.Index(overlap["ASSETID"]))
-    clipped = network.set_index("ASSETID").loc[idx].reset_index()
+    ix = pd.Index(network["ASSETID"]).difference(pd.Index(overlap["ASSETID"]))
+    clipped = network.set_index("ASSETID").loc[ix].reset_index()
     clipped[["railway", "location"]] = ["rail", "GB"]
     network = pd.concat([overlap, clipped]).fillna("-").reset_index(drop=True)
     network = network.sort_values(["ASSETID", "L_M_FROM"])
+    network["km_from"] = get_km_offset(network, "L_SYSTEM", "L_M_FROM")
+    network["km_to"] = get_km_offset(network, "L_SYSTEM", "L_M_TO")
     network["ELD"] = network["ELR"].str[:3]
     network = network.rename(columns={"SHAPE_Leng": "SHAPE_LEN"})
     return network.reset_index(drop=True)
+
+
+def get_waymark(waymark):
+    r = waymark.copy()
+    r["km"] = get_km_offset(r)
+    return r
 
 
 def write_network(network, outfile, layer):
@@ -207,6 +235,7 @@ def write_network(network, outfile, layer):
         "L_M_FROM",
         "L_M_TO",
         "TRACK_STAT",
+        "SHAPE_LEN",
         "geometry",
         "osmid",
         "maxspeed",
@@ -214,6 +243,7 @@ def write_network(network, outfile, layer):
         "ref",
         "electrified",
         "railway",
+        "class",
         "tunnel",
         "bridge",
         "oneway",
@@ -223,6 +253,8 @@ def write_network(network, outfile, layer):
         "landuse",
         "type",
         "location",
+        "km_from",
+        "km_to",
         "ELD",
     ]
     write_dataframe(network[fields], outfile, layer=layer)
@@ -268,19 +300,26 @@ def get_point_count(this_gf):
     return r.groupby("point_id").count()
 
 
-def get_point_m_value(this_segment, ix):
-    source = this_segment.set_index("source")["L_M_FROM"]
-    source = source.loc[ix.intersection(source.index)]
-    target = this_segment.set_index("target")["L_M_TO"]
-    target = target.loc[ix.intersection(target.index)]
-    r = pd.concat([source, target]).rename("WAYMARK_VA").sort_index()
-    r = r.reset_index().drop_duplicates().rename(columns={"index": "point_id"})
+def get_point_km_value(this_segment, ix):
+    source = this_segment.set_index("source")
+    field = ["L_M_FROM", "L_SYSTEM", "km_from"]
+    source = source.loc[ix.intersection(source.index), field]
+    column = {"L_M_FROM": "WAYMARK_VA", "L_SYSTEM": "M_SYSTEM", "km_from": "km"}
+    source = source.rename(columns=column)
+    target = this_segment.set_index("target")
+    field = ["L_M_TO", "L_SYSTEM", "km_to"]
+    target = target.loc[ix.intersection(target.index), field]
+    column = {"L_M_TO": "WAYMARK_VA", "L_SYSTEM": "M_SYSTEM", "km_to": "km"}
+    target = target.rename(columns=column)
+
+    r = pd.concat([source, target]).sort_index()
+    r = r.reset_index().rename(columns={"index": "point_id"})
     r = r.drop_duplicates(subset="point_id", keep=False)
     return r.set_index("point_id")
 
 
-def get_base_sx(this_nx, this_waymark):
-    overlay_nx = overlay_nx_waymark(this_nx, this_waymark, 12 * CENTRE2CENTRE)
+def get_base_sx(this_nx, this_waymark, width=12 * CENTRE2CENTRE):
+    overlay_nx = overlay_nx_waymark(this_nx, this_waymark, width)
     end_nx = get_end_segment(overlay_nx)
     r = pd.concat([overlay_nx, end_nx])
     r = r.drop_duplicates(subset=["ASSETID", "geometry"])
@@ -299,8 +338,8 @@ def get_remainder_sx(this_nx, this_sx):
     return remainder
 
 
-def get_full_sx(this_nx, this_waymark):
-    sx = get_base_sx(this_nx, this_waymark)
+def get_full_sx(this_nx, this_waymark, width=12 * CENTRE2CENTRE):
+    sx = get_base_sx(this_nx, this_waymark, width)
     fields = ["ASSETID", "M_POST_ID", "geometry", "line"]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
@@ -322,6 +361,8 @@ def get_full_sx(this_nx, this_waymark):
         "L_M_FROM",
         "L_M_TO",
         "SHAPE_LEN",
+        "km_from",
+        "km_to",
     ]
     nx = this_nx.set_index("ASSETID")
     sx[fields] = nx.loc[sx["ASSETID"], fields].values
@@ -333,26 +374,29 @@ def get_full_px(this_sx, this_waymark, this_node):
     px = this_sx[["M_POST_ID", "geometry"]].copy().drop_duplicates()
     px = px.set_index("M_POST_ID")
     ix = px.index[px.index > 0]
-    wx = this_waymark.sort_values("WAYMARK_VA").set_index("M_POST_ID")
-    fields = ["ASSETID", "M_SYSTEM", "ELR", "WAYMARK_VA"]
+    wx = this_waymark.sort_values("km").set_index("M_POST_ID")
+    fields = ["ASSETID", "M_SYSTEM", "ELR", "WAYMARK_VA", "km"]
     px = px.loc[ix].join(wx[fields]).reset_index()
+    px = px.loc[px["km"].abs().sort_values().index]
+    px = px.drop_duplicates(subset="geometry").sort_index()
+
     nx = this_node[["ASSETID", "geometry"]].copy()
+    nx = nx.sort_values("ASSETID").drop_duplicates(subset="geometry")
     fields = [
         "M_POST_ID",
         "M_SYSTEM",
         "ELR",
         "WAYMARK_VA",
+        "km",
     ]
-    nx[fields] = [0, "U", "-", 0.0]
-    px = pd.concat([px, nx]).sort_values("ASSETID").reset_index(drop=True)
-    px["CONNECTED"] = 2
-    px = px.sort_values("WAYMARK_VA").drop_duplicates(subset="geometry")
-    px = px.sort_values(["M_POST_ID", "ASSETID"]).reset_index(drop=True)
-    ix = px.loc[px["M_POST_ID"] == 0, "ASSETID"]
+    nx[fields] = [0, "U", "-", 0.0, 0.0]
+    r = pd.concat([px, nx]).sort_values("ASSETID").reset_index(drop=True)
+    r["CONNECTED"] = 2
+    ix = r.loc[r["M_POST_ID"] == 0, "ASSETID"]
     cx = this_node[["ASSETID", "CONNECTED_"]].set_index("ASSETID")
-    px.loc[ix.index, "CONNECTED"] = cx.loc[ix, "CONNECTED_"].values
-    px["point_id"] = "P" + (1 + px.index).astype(str).str.zfill(7)
-    return px
+    r.loc[ix.index, "CONNECTED"] = cx.loc[ix, "CONNECTED_"].values
+    r["point_id"] = "P" + (1 + r.index).astype(str).str.zfill(7)
+    return r
 
 
 def match_segment_point(this_segment, this_post):
@@ -376,14 +420,10 @@ def match_point_segment(this_post, this_segment):
     gs = get_point_key(this_segment, "ELR")
     px["ELR2"] = "-"
     px.loc[gs.index, "ELR2"] = gs.values
-
-    gs = get_point_key(this_segment, "L_SYSTEM")
-    px["L_SYSTEM"] = "-"
-    px.loc[gs.index, "L_SYSTEM"] = gs.values
-
-    gs = get_point_m_value(this_segment, px[px["M_POST_ID"] == 0].index)
-    px.loc[gs.index, "WAYMARK_VA"] = gs
-    px.loc[gs.index, "M_SYSTEM"] = px.loc[gs.index, "L_SYSTEM"]
+    ix = px[px["M_POST_ID"] == 0].index
+    gf = get_point_km_value(this_segment, ix)
+    field = ["WAYMARK_VA", "M_SYSTEM", "km"]
+    px.loc[gf.index, field] = gf[field]
     return px.reset_index()
 
 
@@ -392,7 +432,7 @@ def main():
     write_dataframe(HEXAGON, outfile, layer="hex")
     OUTER = HEXAGON.dissolve().explode(index_parts=False)
     write_dataframe(OUTER, outfile, layer="outer")
-    
+
     basenx = get_basenx(OSMNX)
     write_basenx(basenx, outfile, "basenx")
     set_fullnx(basenx, OSMNX, outfile, "fullnx")
@@ -404,12 +444,15 @@ def main():
     network = get_network(NETWORK, osmnx, 2 * CENTRE2CENTRE)
     write_network(network, outfile, layer="network")
 
+    waymark = get_waymark(WAYMARK)
+    write_dataframe(waymark, outfile, layer="waymark")
     outfile = "segmentx.gpkg"
     # this_nx, this_waymark, this_node = network, WAYMARK, NODE
-    segment = get_full_sx(network, WAYMARK)
-    post = get_full_px(segment, WAYMARK, NODE)
+    segment = get_full_sx(network, waymark, 12 * CENTRE2CENTRE)
+    post = get_full_px(segment, waymark, NODE)
     segment = match_segment_point(segment, post)
     post = match_point_segment(post, segment)
+    segment["offset"] /= 1.0e3
     write_dataframe(post, outfile, layer="post")
     write_dataframe(segment, outfile, layer="segment")
     print(f"segemented {dt.datetime.now() - START}")
