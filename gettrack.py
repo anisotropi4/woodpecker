@@ -446,13 +446,6 @@ def main():
 
     waymark = get_waymark(WAYMARK)
     write_dataframe(waymark, outfile, layer="waymark")
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-
->>>>>>> 1de4abb (calculate km offset)
-=======
->>>>>>> 6396f43 (refactor fullnx and add km)
     outfile = "segmentx.gpkg"
     # this_nx, this_waymark, this_node = network, WAYMARK, NODE
     segment = get_full_sx(network, waymark, 12 * CENTRE2CENTRE)
