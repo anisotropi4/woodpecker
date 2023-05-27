@@ -205,7 +205,7 @@ def get_network(network, osmnx, distance=CENTRE2CENTRE):
     overlap = overlap.reset_index(drop=True)
     ix = pd.Index(network["ASSETID"]).difference(pd.Index(overlap["ASSETID"]))
     clipped = network.set_index("ASSETID").loc[ix].reset_index()
-    clipped[["railway", "location"]] = ["rail", "GB"]
+    clipped[["railway", "location", "osmid"]] = ["rail", "GB", 0]
     network = pd.concat([overlap, clipped]).fillna("-").reset_index(drop=True)
     network = network.sort_values(["ASSETID", "L_M_FROM"])
     network["km_from"] = get_km_offset(network, "L_SYSTEM", "L_M_FROM")
