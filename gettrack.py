@@ -361,6 +361,7 @@ def get_full_sx(this_nx, this_waymark, width=12 * CENTRE2CENTRE):
         "L_M_FROM",
         "L_M_TO",
         "SHAPE_LEN",
+        "osmid",
         "km_from",
         "km_to",
     ]
@@ -453,8 +454,8 @@ def main():
     segment = match_segment_point(segment, post)
     post = match_point_segment(post, segment)
     segment["offset"] /= 1.0e3
-    write_dataframe(post, outfile, layer="post")
     write_dataframe(segment, outfile, layer="segment")
+    write_dataframe(post, outfile, layer="post")
     print(f"segemented {dt.datetime.now() - START}")
 
 
