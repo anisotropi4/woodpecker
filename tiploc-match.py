@@ -202,32 +202,12 @@ def stanox_location(stanox, line):
     return r[field]
 
 
-def main():
-    print(f"STANOX start: {dt.datetime.now() - START}")
-    outfile = "tiploc-location.gpkg"
-    hexagon = read_dataframe("hexagon4.gpkg", layer="hexagon4-00")
-    write_dataframe(hexagon.dissolve(), outfile, layer="hex")
-
-    post = read_dataframe("segmentx.gpkg", layer="post")
-    segment = read_dataframe("segmentx.gpkg", layer="segment")
-    corpus = get_corpus("CORPUSExtract.json")
-    osmnx = get_outputx("outputx.gpkg", "osmnx")
-    write_dataframe(osmnx.to_crs(CRS), outfile, layer="osmnx")
-    fullnx = get_outputx("outputx.gpkg", "fullnx")
-    write_dataframe(fullnx.to_crs(CRS), outfile, layer="fullnx")
-    network = read_dataframe("outputx.gpkg", layer="network")
-    write_dataframe(network.to_crs(CRS), outfile, layer="network")
-
-    OSGB36 = get_osgb36("stanox_to_osgb1936_2.csv")
-    stanox = get_stanox(corpus, OSGB36)
-    stanox["geometry"] = round_point_geometry(stanox)
-    write_dataframe(stanox.to_crs(CRS), outfile, layer="STANOX")
-
-    ox = stanox_location(stanox, osmnx["geometry"])
+def get_osmnx(stanox, ox):
+    r = stanox_location(stanox, ox["geometry"])
     field = ["osmid", "name", "ref"]
-    ox = ox.reset_index().set_index("ix")
-    ox[field] = osmnx.loc[ox.index, field]
-    ox = ox.rename(columns={"ref": "ELR"}).reset_index()
+    r = r.reset_index().set_index("ix")
+    r[field] = ox.loc[ox.index, field]
+    r = r.rename(columns={"ref": "ELR"}).reset_index()
     field = [
         "STANOX",
         "TIPLOC",
@@ -240,29 +220,28 @@ def main():
         "d",
         "geometry",
     ]
-    write_dataframe(ox[field], outfile, layer="ox")
+    return r[field]
 
-    cx = stanox_location(stanox, network["geometry"])
-    field = ["name", "ASSETID", "L_SYSTEM", "ELR", "TRID", "L_M_FROM", "L_M_TO"]
-    cx = cx.reset_index().set_index("ix")
-    cx[field] = network.loc[cx.index, field]
-    cx = cx.reset_index()
-    cx["osmid"] = ""
-    fx = stanox_location(stanox, fullnx["geometry"])
-    field = ["osmid", "name", "ref"]
-    fx = fx.reset_index().set_index("ix")
-    fx[field] = osmnx.loc[ox.index, field]
-    fx = fx.rename(columns={"ref": "ELR"}).reset_index()
-    sx = pd.concat([cx, fx]).sort_values(["STANOX", "d"])
-    sx = sx.drop_duplicates(subset="STANOX")
-    field = ["ASSETID", "L_SYSTEM", "TRID"]
-    sx[field] = sx[field].fillna("")
-    field = ["L_M_FROM", "L_M_TO"]
-    sx[field] = sx[field].fillna(0.0)
+
+def get_network(stanox, mx, *key):
+    r = stanox_location(stanox, mx["geometry"])
+    key = list(key)
+    field = [
+        "ASSETID",
+        "L_SYSTEM",
+        "ELR",
+        "TRID",
+        "L_M_FROM",
+        "L_M_TO",
+        "km_from",
+        "km_to",
+    ] + key
+    r = r.reset_index().set_index("ix")
+    r[field] = mx.loc[r.index, field]
+    r = r.reset_index()
     field = [
         "STANOX",
         "TIPLOC",
-        "name",
         "ELR",
         "3ALPHA",
         "UIC",
@@ -272,11 +251,76 @@ def main():
         "TRID",
         "L_M_FROM",
         "L_M_TO",
-        "osmid",
+        "km_from",
+        "km_to",
         "d",
         "geometry",
     ]
-    write_dataframe(sx[field], outfile, layer="sx")
+    return r[field + key]
+
+
+def combine_network(ox, mx, *key):
+    key = list(key)
+    r = pd.concat([ox, mx]).sort_values(["STANOX", "d"])
+    r = r.drop_duplicates(subset="STANOX")
+    field = ["ASSETID", "L_SYSTEM", "TRID"] + key
+    r[field] = r[field].fillna("")
+    field = ["L_M_FROM", "L_M_TO"]
+    r[field] = r[field].fillna(0.0)
+    r = r.dropna(axis=1)
+    field = [
+        "STANOX",
+        "TIPLOC",
+        "ELR",
+        "3ALPHA",
+        "UIC",
+        "NLCDESC",
+        "ASSETID",
+        "L_SYSTEM",
+        "TRID",
+        "L_M_FROM",
+        "L_M_TO",
+        "d",
+        "geometry",
+    ]
+    return r[field + key]
+
+
+def write_segment(this_segment, ix, outfile, layer):
+    this_segment = this_segment.set_index("segment_id")
+    write_dataframe(this_segment.loc[ix], outfile, layer=layer)
+
+
+def main():
+    print(f"STANOX start: {dt.datetime.now() - START}")
+    outfile = "tiploc-location.gpkg"
+    # hexagon = read_dataframe("hexagon4.gpkg", layer="hexagon4-00")
+    # write_dataframe(hexagon.dissolve(), outfile, layer="hex")
+
+    # post = read_dataframe("segmentx.gpkg", layer="post")
+    segment = read_dataframe("segmentx.gpkg", layer="segment")
+    corpus = get_corpus("CORPUSExtract.json")
+    osmnx = get_outputx("outputx.gpkg", "osmnx")
+    # write_dataframe(osmnx.to_crs(CRS), outfile, layer="osmnx")
+    fullnx = get_outputx("outputx.gpkg", "fullnx")
+    # write_dataframe(fullnx.to_crs(CRS), outfile, layer="fullnx")
+    network = read_dataframe("outputx.gpkg", layer="network")
+    # write_dataframe(network.to_crs(CRS), outfile, layer="network")
+
+    OSGB36 = get_osgb36("stanox_to_osgb1936_2.csv")
+    stanox = get_stanox(corpus, OSGB36)
+    stanox["geometry"] = round_point_geometry(stanox)
+    write_dataframe(stanox.to_crs(CRS), outfile, layer="STANOX")
+
+    write_dataframe(get_osmnx(stanox, osmnx), outfile, layer="ox")
+    ox = get_osmnx(stanox, fullnx)
+    mx = get_network(stanox, network, "osmid")
+    write_dataframe(combine_network(ox, mx, "osmid"), outfile, layer="nx")
+    mx = get_network(stanox, segment, "segment_id", "offset")
+    ox["offset"] = 0.0
+    write_dataframe(combine_network(ox, mx, "offset"), outfile, layer="sx")
+    write_segment(segment, mx["segment_id"], outfile, layer="segment")
+
     print(f"STANOX mapped: {dt.datetime.now() - START}")
 
 
