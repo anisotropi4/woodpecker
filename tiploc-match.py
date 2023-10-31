@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # coding: utf-8
 """Match TIPLOC and STANOX locations"""
+
 import datetime as dt
 import io
 import json
@@ -68,7 +69,7 @@ def get_corpus(inpath):
     returns:
 
     """
-    with open(inpath, "r") as fin:
+    with open(inpath, "r", encoding="utf-8") as fin:
         data = json.load(fin)
         r = pd.json_normalize(data, "TIPLOCDATA")
     ix = r[r["STANOX"].str.strip() > ""].index
