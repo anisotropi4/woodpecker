@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-
-import json
+# coding: utf-8
+"""Match TIPLOC and STANOX locations"""
 import datetime as dt
 import io
-import os
-import warnings
+import json
 
-import networkx as nx
-import pandas as pd
-
-os.environ["USE_PYGEOS"] = "0"
 import geopandas as gp
+import pandas as pd
 from pyogrio import read_dataframe, write_dataframe
 from shapely import line_locate_point
 from shapely.ops import nearest_points
@@ -23,40 +19,34 @@ CRS = "EPSG:32630"
 CENTRE2CENTRE = 3.26
 
 
-def get_wnx(gx, points):
-    try:
-        edges = [LineString(points[np.array(i)]) for i in gx.edges]
-    except KeyError:
-        return get_wnx(gx, points.values)
-    return gp.GeoSeries(edges).rename("geometry").set_crs(CRS)
-
-
-def get_delaunay(this_nx):
-    delaunay = Delaunay.from_dataframe((this_nx))
-    dx = delaunay.to_networkx()
-    DF2 = nx.to_pandas_edgelist(DX)[["source", "target"]]
-    EDGES = gp.GeoDataFrame(get_wnx(dx, this_nx["geometry"]))
-    EDGES = EDGES.join(DF2)
-    EDGES["source"] = NX["em class"].values[EDGES["source"]]
-    EDGES["target"] = NX["em class"].values[EDGES["target"]]
-    EDGES.to_crs(CRS).to_file(FILEPATH, driver="GPKG", layer="D1")
-    IDX3 = EDGES[(EDGES["source"] > -1) & (EDGES["target"] > -1)].index
-    EDGES = EDGES.loc[IDX3]
-    EDGES["distance"] = EDGES.length
-    EDGES.to_crs(CRS).to_file(FILEPATH, driver="GPKG", layer="D2")
-
-
 def fix_xmlfile(path):
-    """Download data from URI and returns as a buffer"""
+    """fix_xmlfile: Download data from URI and returns as a buffer
+
+    args:
+      path:
+
+    returns:
+
+    """
     r = io.StringIO()
     r.write("<fixxmltag>\n")
-    r.write(open(path).read())
+    with open(path, encoding="utf-8") as fin:
+        r.write(fin.read())
     r.write("</fixxmltag>\n")
     r.seek(0)
     return "".join(r)
 
 
 def get_xmlstannox(inpath, file_crs="WGS84"):
+    """get_xmlstannox: Download data from xml
+
+    args:
+      inpath:
+      file_crs:  (Default value = "WGS84")
+
+    returns:
+
+    """
     buffer = fix_xmlfile(inpath)
     stanox_code = pd.read_xml(buffer, xpath="//ea").dropna(axis=1)
     data = pd.read_xml(buffer, xpath="//e")
@@ -70,6 +60,14 @@ def get_xmlstannox(inpath, file_crs="WGS84"):
 
 
 def get_corpus(inpath):
+    """get_corpus: Get CORPUS from xml
+
+    args:
+      inpath:
+
+    returns:
+
+    """
     with open(inpath, "r") as fin:
         data = json.load(fin)
         r = pd.json_normalize(data, "TIPLOCDATA")
@@ -80,11 +78,20 @@ def get_corpus(inpath):
 
 
 def get_osgb36(inpath, file_crs="EPSG:27700"):
+    """get_osb36: Get STANOX northing and easting values
+
+    args:
+      inpath:
+      file_crs:  (Default value = "EPSG:27700")
+
+    returns:
+
+    """
     df = pd.read_csv(
         inpath,
         header=None,
         names=["STANOX", "northing", "easting"],
-        dtype={"STANOX": "str"},
+        dtype={"STANOX": str},
     )
     data = df["STANOX"]
     fields = ["northing", "easting"]
@@ -94,11 +101,28 @@ def get_osgb36(inpath, file_crs="EPSG:27700"):
 
 
 def round_point_geometry(this_gf):
+    """round_point_geometry: Round point values
+
+    args:
+      this_gf:
+
+    returns:
+
+    """
     r = this_gf["geometry"]
     return gp.points_from_xy(r.x.round(1), r.y.round(1))
 
 
 def get_stanox(corpus, *stanoxes):
+    """get_stanox:
+
+    args:
+      corpus:
+      *stanoxes:
+
+    returns:
+
+    """
     r = pd.concat(stanoxes).dropna(axis=1)
     r = r.drop_duplicates(subset="STANOX")
     r = r.join(corpus.set_index("STANOX"), on="STANOX").fillna("")
@@ -106,11 +130,29 @@ def get_stanox(corpus, *stanoxes):
 
 
 def get_tiploc(stanox, corpus):
+    """get_tiploc:
+
+    args:
+      stanox:
+      corpus:
+
+    returns:
+
+    """
     r = stanox.join(corpus.set_index("STANOX"), on="STANOX").fillna("")
     return r.drop_duplicates(subset="TIPLOC")
 
 
 def get_outputx(inpath, layer="osmnx"):
+    """get_outputx:
+
+    args:
+      inpath:
+      layer:  (Default value = "osmnx")
+
+    returns:
+
+    """
     r = read_dataframe(inpath, layer=layer)
     r = r.sort_values("ref", ascending=False)
     r = r.drop_duplicates(subset="geometry").sort_index()
@@ -118,6 +160,15 @@ def get_outputx(inpath, layer="osmnx"):
 
 
 def get_buffer(gs, width=4):
+    """get_buffer:
+
+    args:
+      gs:
+      width:  (Default value = 4)
+
+    returns:
+
+    """
     # style = {"cap_style": "square", "join_style": "mitre", "mitre_limit": length}
     style = {"cap_style": "flat"}
     gs = gs["geometry"].copy()
@@ -125,6 +176,15 @@ def get_buffer(gs, width=4):
 
 
 def get_overlap(gf1, gf2):
+    """get_overlap:
+
+    args:
+      gf1:
+      gf2:
+
+    returns:
+
+    """
     data = []
     gf1 = gf1.copy()
     gf1["n"] = gf1.reset_index().index
@@ -139,11 +199,29 @@ def get_overlap(gf1, gf2):
 
 
 def get_nearest_point(gs1, gs2):
+    """get_nearest_point:
+
+    args:
+      gs1:
+      gs2:
+
+    returns:
+
+    """
     r = [nearest_points(*i)[0] for i in zip(gs1, gs2)]
     return gp.GeoSeries(r, crs=CRS).rename("geometry")
 
 
 def get_offset(line, point):
+    """get_offset:
+
+    args:
+      line:
+      point:
+
+    returns:
+
+    """
     return line_locate_point(line, point)
 
 
@@ -151,8 +229,18 @@ def overlay_nx_waymark(
     network, waymarks, width=CENTRE2CENTRE, nxkey="ASSETID", wxkey="M_POST_ID"
 ):
     """overlay_nx_waymark: create a rectangular polygon buffer of given width
-    on network line elements, and identify waymarks within the buffer
-    Returns a GeoDataFrame of all line waymarks"""
+        on network line elements, and identify waymarks within the buffer
+    args:
+      network:
+      waymark:
+      width:
+      nxkey:
+      wxkey:
+
+    returns:
+      GeoDataFrame of all line waymarks
+
+    """
     gf1 = network[[nxkey, "geometry"]]
     gf2 = waymarks[[wxkey, "geometry"]]
 
@@ -173,23 +261,43 @@ def overlay_nx_waymark(
     return r.sort_values([nxkey, "offset"]).reset_index()
 
 
-def get_split(v):
-    line, point = v["line"], v["geometry"]
-    return list(split(snap(line, point, separation), point).geoms)
-
-
 def get_segment_id(v):
+    """get_segment_id:
+
+    args:
+      v:
+
+    returns:
+
+    """
     p = gp.GeoSeries(v["geometry"]).to_frame("geometry").set_crs(CRS)
     return p
 
 
 def drop_non_tiploc_geometry(this_gf):
+    """drop_non_tiploc_geometry:
+
+    args:
+      this_gf:
+
+    returns:
+
+    """
     r = this_gf.copy()
     r = r.sort_values("TIPLOC").drop_duplicates(subset="geometry", keep="last")
     return r.sort_index()
 
 
 def stanox_location(stanox, line):
+    """stanox_location:
+
+    args:
+      stanox:
+      line:
+
+    returns:
+
+    """
     lx = line.to_frame("geometry")
     sx = drop_non_tiploc_geometry(stanox.copy())
     r = drop_non_tiploc_geometry(sx.sjoin_nearest(lx, distance_col="d"))
@@ -197,69 +305,65 @@ def stanox_location(stanox, line):
     r = r.rename(columns={"index_right": "ix"})
     key = "geometry"
     r[key] = get_nearest_point(lx.loc[r["ix"], key], r[key])
-    field = ["STANOX", "TIPLOC", "3ALPHA", "UIC", "NLCDESC", "d", "geometry", "ix"]
+    field = ("STANOX,TIPLOC,3ALPHA,UIC,NLCDESC,d,geometry,ix").split(",")
     r = r.set_index("p_ix")
     return r[field]
 
 
 def get_osmnx(stanox, ox):
+    """get_osmnx:
+
+    args:
+      stanox:
+      ox:
+
+    returns:
+
+    """
     r = stanox_location(stanox, ox["geometry"])
     field = ["osmid", "name", "ref"]
     r = r.reset_index().set_index("ix")
     r[field] = ox.loc[ox.index, field]
     r = r.rename(columns={"ref": "ELR"}).reset_index()
-    field = [
-        "STANOX",
-        "TIPLOC",
-        "name",
-        "ELR",
-        "3ALPHA",
-        "UIC",
-        "NLCDESC",
-        "osmid",
-        "d",
-        "geometry",
-    ]
+    field = ("STANOX,TIPLOC,name,ELR,3ALPHA,UIC,NLCDESC,osmid,d,geometry").split(",")
     return r[field]
 
 
 def get_network(stanox, mx, *key):
+    """get_network:
+
+    args:
+      stanox:
+      mx:
+      *key:
+
+    returns:
+
+    """
     r = stanox_location(stanox, mx["geometry"])
     key = list(key)
-    field = [
-        "ASSETID",
-        "L_SYSTEM",
-        "ELR",
-        "TRID",
-        "L_M_FROM",
-        "L_M_TO",
-        "km_from",
-        "km_to",
-    ] + key
+    field = ("ASSETID,L_SYSTEM,ELR,TRID,L_M_FROM,L_M_TO,km_from,km_to").split(",") + key
     r = r.reset_index().set_index("ix")
     r[field] = mx.loc[r.index, field]
     r = r.reset_index()
-    field = [
-        "STANOX",
-        "TIPLOC",
-        "ELR",
-        "3ALPHA",
-        "UIC",
-        "NLCDESC",
-        "ASSETID",
-        "L_SYSTEM",
-        "TRID",
-        "L_M_FROM",
-        "L_M_TO",
-        "km_from",
-        "km_to",
-        "d",
-        "geometry",
-    ]
+    field = (
+        "STANOX,TIPLOC,ELR,3ALPHA,UIC,NLCDESC,ASSETID,L_SYSTEM,TRID,L_M_FROM,L_M_TO,km_from,"
+        "km_to,d,geometry"
+    ).split(",")
     return r[field + key]
 
 
 def combine_network(ox, mx, *key):
+    """combine_network:
+
+    args:
+      ox:
+      mx:
+      *key:
+
+    returns:
+
+    """
     key = list(key)
     r = pd.concat([ox, mx]).sort_values(["STANOX", "d"])
     r = r.drop_duplicates(subset="STANOX")
@@ -268,30 +372,30 @@ def combine_network(ox, mx, *key):
     field = ["L_M_FROM", "L_M_TO"]
     r[field] = r[field].fillna(0.0)
     r = r.dropna(axis=1)
-    field = [
-        "STANOX",
-        "TIPLOC",
-        "ELR",
-        "3ALPHA",
-        "UIC",
-        "NLCDESC",
-        "ASSETID",
-        "L_SYSTEM",
-        "TRID",
-        "L_M_FROM",
-        "L_M_TO",
-        "d",
-        "geometry",
-    ]
+    field = (
+        "STANOX,TIPLOC,ELR,3ALPHA,UIC,NLCDESC,ASSETID,L_SYSTEM,TRID,L_M_FROM,L_M_TO,d,geometry"
+    ).split(",")
     return r[field + key]
 
 
 def write_segment(this_segment, ix, outfile, layer):
+    """write_segment:
+
+    args:
+      this_segment:
+      ix:
+      outfile:
+      layer:
+
+    returns:
+
+    """
     this_segment = this_segment.set_index("segment_id")
     write_dataframe(this_segment.loc[ix], outfile, layer=layer)
 
 
 def main():
+    """Map geographic locations for TIPLOC and STANOX"""
     print(f"STANOX start: {dt.datetime.now() - START}")
     outfile = "tiploc-location.gpkg"
     # hexagon = read_dataframe("hexagon4.gpkg", layer="hexagon4-00")
@@ -307,8 +411,8 @@ def main():
     network = read_dataframe("outputx.gpkg", layer="network")
     # write_dataframe(network.to_crs(CRS), outfile, layer="network")
 
-    OSGB36 = get_osgb36("stanox_to_osgb1936_2.csv")
-    stanox = get_stanox(corpus, OSGB36)
+    osgb36 = get_osgb36("stanox_to_osgb1936_2.csv")
+    stanox = get_stanox(corpus, osgb36)
     stanox["geometry"] = round_point_geometry(stanox)
     write_dataframe(stanox.to_crs(CRS), outfile, layer="STANOX")
 
